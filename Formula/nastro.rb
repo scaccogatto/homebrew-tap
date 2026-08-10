@@ -7,7 +7,6 @@ class Nastro < Formula
   head "https://github.com/scaccogatto/nastro.git", branch: "main"
 
   depends_on "go" => :build
-  depends_on :macos
   depends_on macos: :sonoma # CoreAudio process tap needs 14.4+
   depends_on xcode: :build  # swiftc for nastro-tap
 
