@@ -20,8 +20,10 @@ class Nastro < Formula
       On first recording, macOS will ask your terminal app for
       Screen & System Audio Recording permission.
 
-      Diarized transcription (default) needs whisperx and a HuggingFace
-      token - nastro guides you through both on first use.
+      Transcription runs locally via whisper.cpp - nastro offers to
+      install it on first use. Want speaker-diarized transcripts?
+      Set transcriber = "whisperx" in ~/.config/nastro/config.toml
+      (needs a HuggingFace token - nastro guides you through it).
     EOS
   end
 
