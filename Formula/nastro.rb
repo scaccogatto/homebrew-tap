@@ -1,8 +1,8 @@
 class Nastro < Formula
   desc "Terminal-native call recorder for macOS: no bots, no cloud"
   homepage "https://github.com/scaccogatto/nastro"
-  url "https://github.com/scaccogatto/nastro/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "a49933f477f0f8dd2746e899db726ae4abff5e5cddbad90fe6d3101c775fe000"
+  url "https://github.com/scaccogatto/nastro/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "50e4da6b32a7cfec3d1063f79578fd7cae2ce8265fcec0e9f8288c6213979b00"
   license "MIT"
   head "https://github.com/scaccogatto/nastro.git", branch: "main"
 
