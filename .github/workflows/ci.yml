@@ -9,21 +9,57 @@ permissions:
   contents: read
 
 jobs:
+  # The job id is a required status check: keep it `lint` even though the job
+  # also installs and tests every formula.
   lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_ANALYTICS: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Check formula syntax
-        run: |
-          set -euo pipefail
-          for f in Formula/*.rb; do ruby -c "$f"; done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Lint workflows
         env:
           ACTIONLINT_VERSION: 1.7.12
+          # sha256 of actionlint_${ACTIONLINT_VERSION}_darwin_arm64.tar.gz, from the
+          # release's actionlint_${ACTIONLINT_VERSION}_checksums.txt
+          ACTIONLINT_SHA256: aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f
         run: |
           set -euo pipefail
-          bash <(curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "${ACTIONLINT_VERSION}"
-          ./actionlint -color
+          [ "$(uname -sm)" = "Darwin arm64" ] || { echo "::error::actionlint checksum is pinned for darwin_arm64"; exit 1; }
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_arm64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | shasum -a 256 -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "${RUNNER_TEMP}/actionlint" -color
+
+      - name: Register checkout as the tap
+        run: |
+          set -euo pipefail
+          taps="$(brew --repository)/Library/Taps/scaccogatto"
+          mkdir -p "$taps"
+          rm -rf "${taps}/homebrew-tap"
+          ln -s "$GITHUB_WORKSPACE" "${taps}/homebrew-tap"
+
+      - name: Style
+        run: brew style scaccogatto/tap
+
+      - name: Audit
+        run: |
+          set -euo pipefail
+          for f in Formula/*.rb; do
+            brew audit --strict --online --formula "scaccogatto/tap/$(basename "$f" .rb)"
+          done
+
+      - name: Install from source and test
+        run: |
+          set -euo pipefail
+          for f in Formula/*.rb; do
+            name="scaccogatto/tap/$(basename "$f" .rb)"
+            brew install --build-from-source --verbose "$name"
+            brew test --verbose "$name"
+          done
