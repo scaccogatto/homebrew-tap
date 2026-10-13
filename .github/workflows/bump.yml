@@ -5,17 +5,27 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
+
+concurrency:
+  group: bump-nastro
+  cancel-in-progress: false
 
 jobs:
   bump:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Bump formula if a new release exists
+      - name: Check for a new release
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -23,25 +33,74 @@ jobs:
 
           formula="Formula/nastro.rb"
           latest_tag="$(gh api repos/scaccogatto/nastro/releases/latest --jq .tag_name)"
+          if [[ ! "$latest_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected release tag format: ${latest_tag}"
+            exit 1
+          fi
           current_tag="$(grep -o '/tags/v[^/]*\.tar\.gz' "$formula" | sed -E 's#/tags/(v[^/]+)\.tar\.gz#\1#')"
+          version="${latest_tag#v}"
+          branch="bump/nastro-${version}"
 
           echo "current: $current_tag, latest: $latest_tag"
 
           if [ "$current_tag" = "$latest_tag" ]; then
             echo "Already up to date, nothing to do."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          tarball_url="https://github.com/scaccogatto/nastro/archive/refs/tags/${latest_tag}.tar.gz"
-          new_sha="$(curl -sL "$tarball_url" | sha256sum | cut -d' ' -f1)"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "A bump PR from ${branch} is already open, nothing to do."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          sed -i -E "s#archive/refs/tags/v[^/]+\.tar\.gz#archive/refs/tags/${latest_tag}.tar.gz#" "$formula"
-          sed -i -E "s/sha256 \"[0-9a-f]+\"/sha256 \"${new_sha}\"/" "$formula"
+          tarball="${RUNNER_TEMP}/nastro.tar.gz"
+          curl -fsSL -o "$tarball" "https://github.com/scaccogatto/nastro/archive/refs/tags/${latest_tag}.tar.gz"
+          gzip -t "$tarball"
+          new_sha="$(sha256sum "$tarball" | cut -d' ' -f1)"
 
-          version="${latest_tag#v}"
+          {
+            echo "needed=true"
+            echo "tag=${latest_tag}"
+            echo "version=${version}"
+            echo "branch=${branch}"
+            echo "sha256=${new_sha}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open bump PR
+        if: steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check.outputs.tag }}
+          VERSION: ${{ steps.check.outputs.version }}
+          BRANCH: ${{ steps.check.outputs.branch }}
+          SHA256: ${{ steps.check.outputs.sha256 }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          formula="Formula/nastro.rb"
+          [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Invalid sha256: ${SHA256}"; exit 1; }
+          sed -i -E "s#archive/refs/tags/v[^/]+\.tar\.gz#archive/refs/tags/${TAG}.tar.gz#" "$formula"
+          sed -i -E "s/sha256 \"[0-9a-f]+\"/sha256 \"${SHA256}\"/" "$formula"
+          grep -qF "archive/refs/tags/${TAG}.tar.gz" "$formula"
+          grep -qF "sha256 \"${SHA256}\"" "$formula"
 
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
           git add "$formula"
-          git commit -m "nastro ${version}"
-          git push
+          git commit -m "nastro ${VERSION}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:refs/heads/${BRANCH}"
+
+          pr_url="$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "nastro ${VERSION}" \
+            --body "Automated bump to https://github.com/scaccogatto/nastro/releases/tag/${TAG}")"
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows, but
+          # workflow_dispatch is allowed: its `lint` check run lands on the branch head
+          # SHA, so the required check reports on the PR and auto-merge waits for it.
+          gh workflow run ci.yml --ref "$BRANCH"
+          gh pr merge --auto --squash "$pr_url"
