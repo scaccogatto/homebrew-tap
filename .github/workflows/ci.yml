@@ -44,9 +44,14 @@ jobs:
           mkdir -p "$taps"
           rm -rf "${taps}/homebrew-tap"
           ln -s "$GITHUB_WORKSPACE" "${taps}/homebrew-tap"
+          # Homebrew ignores third-party taps until trusted. This tap is the code under test.
+          brew trust --tap scaccogatto/tap
 
+      # Formula files only: styling the whole tap also runs actionlint with
+      # Homebrew's own config, which rejects this repo's variables. Workflows
+      # are linted by the step above.
       - name: Style
-        run: brew style scaccogatto/tap
+        run: brew style ./Formula
 
       - name: Audit
         run: |
