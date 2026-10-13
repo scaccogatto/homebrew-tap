@@ -7,10 +7,14 @@ class Nastro < Formula
   head "https://github.com/scaccogatto/nastro.git", branch: "main"
 
   depends_on "go" => :build
-  depends_on macos: :sonoma # CoreAudio process tap needs 14.4+
-  depends_on xcode: :build  # swiftc for nastro-tap
+  # CoreAudio process tap needs 14.4+, which `depends_on macos:` cannot express:
+  # :sonoma admits 14.0-14.3, so install checks the minor version below.
+  # nastro-tap builds with the Command Line Tools swiftc: no Xcode.app needed.
+  depends_on macos: :sonoma
 
   def install
+    odie "nastro requires macOS 14.4 or newer (CoreAudio process tap)" if MacOS.full_version < "14.4"
+
     system "make", "build", "check-tap"
     bin.install "bin/nastro", "bin/nastro-tap"
   end
@@ -29,5 +33,6 @@ class Nastro < Formula
 
   test do
     assert_match "usage", shell_output("#{bin}/nastro badcommand 2>&1", 1)
+    assert_match "self-check ok", shell_output("#{bin}/nastro-tap --self-check")
   end
 end
