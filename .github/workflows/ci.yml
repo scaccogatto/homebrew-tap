@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Dispatched by bump.yml on its PR branch (see the comment there).
+  workflow_dispatch:
 
 permissions:
   contents: read

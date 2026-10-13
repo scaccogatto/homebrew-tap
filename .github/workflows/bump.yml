@@ -16,8 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      pull-requests: read
+      contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,22 +68,10 @@ jobs:
             echo "sha256=${new_sha}"
           } >> "$GITHUB_OUTPUT"
 
-      # A GitHub App token, not GITHUB_TOKEN: events from GITHUB_TOKEN do not
-      # trigger workflows, so CI (a required check) would never run on the PR.
-      - name: Mint bump token
-        if: steps.check.outputs.needed == 'true'
-        id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.TAP_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.TAP_BOT_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
-
       - name: Open bump PR
         if: steps.check.outputs.needed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.check.outputs.tag }}
           VERSION: ${{ steps.check.outputs.version }}
           BRANCH: ${{ steps.check.outputs.branch }}
@@ -110,4 +99,8 @@ jobs:
             --head "$BRANCH" \
             --title "nastro ${VERSION}" \
             --body "Automated bump to https://github.com/scaccogatto/nastro/releases/tag/${TAG}")"
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows, but
+          # workflow_dispatch is allowed: its `lint` check run lands on the branch head
+          # SHA, so the required check reports on the PR and auto-merge waits for it.
+          gh workflow run ci.yml --ref "$BRANCH"
           gh pr merge --auto --squash "$pr_url"
